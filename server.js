@@ -1,4 +1,7 @@
 'use strict';
+
+require('dotenv').config();
+
 const express = require('express');
 const passport = require('passport');
 const jwt = require('jsonwebtoken');
@@ -12,8 +15,7 @@ const app = express();
 
 const options = {
   secretOrKey: config.JWT_SECRET,
-  jwtFromRequest: ExtractJwt.fromAuthHeaderWithScheme('Bearer'),
-  algorithms: ['HS256']
+  jwtFromRequest: ExtractJwt.fromAuthHeaderWithScheme('Bearer')
 };
 
 const jwtStrategy = new JwtStrategy(options, (payload, done) => {
@@ -21,19 +23,18 @@ const jwtStrategy = new JwtStrategy(options, (payload, done) => {
 });
 
 const createAuthToken = function(user) {
-  return jwt.sign({user}, config.JWT_SECRET, {
+  const options = {
     subject: user.username,
-    expiresIn: config.JWT_EXPIRY,
-    algorithm: 'HS256' //default
-  });
+    expiresIn: config.JWT_EXPIRY
+  };
+  return jwt.sign({user}, config.JWT_SECRET, options);
 };
 
-const jwtAuth = passport.authenticate('jwt', {session: false});
+const jwtAuth = passport.authenticate('jwt', {session: false, failWithError: true});
 
 passport.use(jwtStrategy);
-app.use(passport.initialize());
 
-app.get('/api/token',(req, res) => {
+app.post('/api/login', (req, res) => {
   const payload = {
     username:'bobuser',
     firstName: 'Bob',
@@ -43,16 +44,15 @@ app.get('/api/token',(req, res) => {
   res.json({authToken});
 });
 
-app.get('/api/protected', jwtAuth, (req, res) => {
+app.get('/api/secret', jwtAuth, (req, res) => {
   return res.json({data: 'rosebud'});
 });
 
 app.post('/api/refresh', jwtAuth, (req, res) => {
-  console.log(req.user)
   const authToken = createAuthToken(req.user);
   res.json({authToken});
 });
 
 app.listen(process.env.PORT || 8080, () => {
-  console.log(`app listening on port ${process.env.PORT || 8080}`)
-}); 
+  console.log(`app listening on port ${process.env.PORT || 8080}`);
+});
