@@ -1,58 +1,81 @@
 'use strict';
 
-require('dotenv').config();
-
 const express = require('express');
 const passport = require('passport');
 const jwt = require('jsonwebtoken');
-const config = require('./config');
+const { Strategy: LocalStrategy } = require('passport-local');
+const { Users, Items } = require('./data');
 
 const jwtPassport = require('passport-jwt');
 const JwtStrategy = jwtPassport.Strategy;
 const ExtractJwt = jwtPassport.ExtractJwt;
 
 const app = express();
+app.use(express.static('public'));
+app.use(express.json());
 
-const options = {
-  secretOrKey: config.JWT_SECRET,
-  jwtFromRequest: ExtractJwt.fromAuthHeaderWithScheme('Bearer')
-};
+/**
+ * Login and local strategy ===================================================
+ */
+const localStrategy = new LocalStrategy((username, password, done) => {
+  try {
+    // Find and authenticate user based on `username` and `password`
+    let user = Users.find((usr) => usr.username === username && usr.password === password);
+    if (user) {
+      user = Object.assign({}, user);
+      delete user.password; //remove password from result
 
-const jwtStrategy = new JwtStrategy(options, (payload, done) => {
-  done(null, payload.user);
+      done(null, user); // login success - sets `req.user = user`
+    } else {
+      done(null, false); // login failure
+    }
+  } catch (err) {
+    done(err); // error
+  }
 });
 
-const createAuthToken = function(user) {
+passport.use(localStrategy);
+const localAuth = passport.authenticate('local', { session: false, failWithError: true });
+
+app.post('/api/login', localAuth, (req, res) => {
+  // The `req.user` has a value because of `done(null, user)` in Local Strategy
+  console.log(`Login: ${req.user.username}, ${req.user.id}`);
   const options = {
-    subject: user.username,
-    expiresIn: config.JWT_EXPIRY
+    expiresIn: '1d'
   };
-  return jwt.sign({user}, config.JWT_SECRET, options);
-};
+  const payload = {
+    user: req.user
+  };
+  const authToken = jwt.sign(payload, JWT_SECRET, options);
+  res.json({ authToken });
+});
 
-const jwtAuth = passport.authenticate('jwt', {session: false, failWithError: true});
+/**
+ * Protected endpoints and JWT strategy ========================================
+ */
+const JWT_SECRET = 'FOR-DEMO-ONLY'; // do not hard-code this in a real project
 
+const jwtStrategy = new JwtStrategy({
+  secretOrKey: JWT_SECRET,
+  jwtFromRequest: ExtractJwt.fromAuthHeaderWithScheme('Bearer')
+}, (payload, done) => {
+  // The following line accepts the JWT and sets `req.user = user`
+  done(null, payload.user);  // JWT is valid - sets `req.user = payload.user`
+});
 passport.use(jwtStrategy);
 
-app.post('/api/login', (req, res) => {
-  const payload = {
-    username:'bobuser',
-    firstName: 'Bob',
-    lastName: 'User'
-  };
-  const authToken = createAuthToken(payload);
-  res.json({authToken});
+const jwtAuth = passport.authenticate('jwt', { session: false, failWithError: true });
+
+app.get('/api/items', jwtAuth, (req, res) => {
+  // The `req.user` has a value because of `done(null, payload.user)` in JWT Strategy
+  console.log(`GET request by: ${req.user.username}, ${req.user.id}`);
+  const result = Items.filter(item => item.userId === req.user.id);
+  return res.json(result);
 });
 
-app.get('/api/secret', jwtAuth, (req, res) => {
-  return res.json({data: 'rosebud'});
-});
-
-app.post('/api/refresh', jwtAuth, (req, res) => {
-  const authToken = createAuthToken(req.user);
-  res.json({authToken});
-});
-
+/**
+ * Start Server ================================================================
+ */
 app.listen(process.env.PORT || 8080, () => {
   console.log(`app listening on port ${process.env.PORT || 8080}`);
 });
